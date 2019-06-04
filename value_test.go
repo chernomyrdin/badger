@@ -472,12 +472,14 @@ func TestPersistLFDiscardStats(t *testing.T) {
 		persistedMap[k] = v
 	}
 	db.vlog.lfDiscardStats.Unlock()
+	fmt.Println(len(db.vlog.lfDiscardStats.m))
 	err = db.Close()
 	require.NoError(t, err)
 
 	db, err = Open(opt)
 	require.NoError(t, err)
 	defer db.Close()
+	fmt.Println(len(persistedMap), len(db.vlog.lfDiscardStats.m))
 	require.True(t, reflect.DeepEqual(persistedMap, db.vlog.lfDiscardStats.m),
 		"Discard maps are not equal")
 }

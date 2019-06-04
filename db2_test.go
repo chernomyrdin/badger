@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"path"
@@ -323,4 +324,41 @@ func TestPushValueLogLimit(t *testing.T) {
 			require.NoError(t, err)
 		}
 	})
+}
+func TestDiscardMapTooBig(t *testing.T) {
+	createDiscardStats := func() map[uint32]int64 {
+		stat := map[uint32]int64{}
+		for i := uint32(0); i < 8000; i++ {
+			stat[i] = 0
+		}
+		return stat
+	}
+
+	fmt.Println("max uint16", math.MaxUint16)
+	dir, err := ioutil.TempDir(".", "badger")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	ops := DefaultOptions
+	ops.Dir = dir
+	ops.ValueDir = dir
+	db, err := Open(ops)
+	require.NoError(t, err, "error while openning db")
+
+	// Add some data so that memtable flush happens on close
+	txn := db.NewTransaction(true)
+	defer txn.Discard()
+	txn.Set([]byte("foo"), []byte("bar"))
+	txn.Commit()
+
+	// overwrite discardstat with large value
+	db.vlog.lfDiscardStats = &lfDiscardStats{
+		m: createDiscardStats(),
+	}
+
+	db.Close()
+	// reopen the same DB
+	db, err = Open(ops)
+	require.NoError(t, err, "error while openning db")
+	defer db.Close()
 }

@@ -604,7 +604,8 @@ func (vlog *valueLog) dropAll() (int, error) {
 // a given logfile.
 type lfDiscardStats struct {
 	sync.Mutex
-	m map[uint32]int64
+	m                 map[uint32]int64
+	updatesSinceFlush uint16
 }
 
 type valueLog struct {
@@ -1370,12 +1371,25 @@ func (vlog *valueLog) runGC(discardRatio float64, head valuePointer) error {
 	}
 }
 
-func (vlog *valueLog) updateDiscardStats(stats map[uint32]int64) {
+func (vlog *valueLog) updateDiscardStats(stats map[uint32]int64) error {
 	vlog.lfDiscardStats.Lock()
+	defer vlog.lfDiscardStats.Unlock()
+
 	for fid, sz := range stats {
 		vlog.lfDiscardStats.m[fid] += sz
 	}
-	vlog.lfDiscardStats.Unlock()
+	if vlog.lfDiscardStats.updatesSinceFlush > 100 {
+		txn := vlog.db.NewTransaction(true)
+		defer txn.Discard()
+		if err := txn.Set(lfDiscardStatsKey, vlog.encodedDiscardStats()); err != nil {
+			return errors.Wrap(err, "failed to add discard stats")
+		}
+		if err := txn.Commit(); err != nil {
+			return errors.Wrap(err, "failed to commit discard stats")
+		}
+		vlog.lfDiscardStats.updatesSinceFlush = 0
+	}
+	return nil
 }
 
 // encodedDiscardStats returns []byte representation of lfDiscardStats
